@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="El Tiempo">
+<title>El Tiempo</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
+    min-height: 100vh;
+    display: flex; flex-direction: column; align-items: center;
+    transition: background 0.8s ease;
+    background: linear-gradient(160deg, #74b9ff, #0984e3);
+    color: white;
+  }
+  .app { width: 100%; max-width: 390px; padding: 60px 24px 40px; display: flex; flex-direction: column; align-items: center; gap: 0; min-height: 100vh; }
+
+  .search-bar { display: flex; gap: 8px; width: 100%; margin-bottom: 36px; }
+  .search-bar input {
+    flex: 1; padding: 12px 16px; border-radius: 999px;
+    border: none; background: rgba(255,255,255,0.25);
+    color: white; font-size: 16px; outline: none;
+    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+  }
+  .search-bar input::placeholder { color: rgba(255,255,255,0.7); }
+  .search-bar button, .gps-btn {
+    padding: 12px 16px; border-radius: 999px; border: none;
+    background: rgba(255,255,255,0.25); color: white;
+    font-size: 16px; cursor: pointer; backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px); transition: background .2s;
+  }
+  .search-bar button:active, .gps-btn:active { background: rgba(255,255,255,0.4); }
+
+  .city-name { font-size: 28px; font-weight: 600; text-align: center; margin-bottom: 4px; }
+  .date-txt { font-size: 14px; color: rgba(255,255,255,0.75); margin-bottom: 32px; }
+
+  .emoji-big { font-size: 110px; line-height: 1; margin-bottom: 16px; filter: drop-shadow(0 4px 16px rgba(0,0,0,0.15)); }
+  .sky-desc { font-size: 20px; font-weight: 500; margin-bottom: 8px; text-align: center; }
+  .temp-big { font-size: 80px; font-weight: 300; line-height: 1; margin-bottom: 32px; }
+
+  .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; width: 100%; }
+  .card {
+    background: rgba(255,255,255,0.18); border-radius: 20px;
+    padding: 16px; backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  .card .c-label { font-size: 12px; color: rgba(255,255,255,0.7); text-transform: uppercase; letter-spacing: 0.06em; }
+  .card .c-val { font-size: 26px; font-weight: 500; }
+  .card .c-emoji { font-size: 22px; }
+
+  .loading { font-size: 18px; color: rgba(255,255,255,0.8); margin-top: 80px; text-align: center; }
+  .error-msg { background: rgba(255,255,255,0.2); border-radius: 16px; padding: 16px 20px; font-size: 15px; text-align: center; margin-top: 20px; line-height: 1.5; }
+
+  .main-info { display: flex; flex-direction: column; align-items: center; width: 100%; }
+  .hidden { display: none; }
+
+  .update-txt { font-size: 12px; color: rgba(255,255,255,0.55); margin-top: 24px; }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="search-bar">
+    <input type="text" id="city-input" placeholder="Buscar ciudad..." onkeydown="if(event.key==='Enter') searchCity()">
+    <button onclick="searchCity()">🔍</button>
+    <button class="gps-btn" onclick="getGPS()" title="Usar mi ubicación">📍</button>
+  </div>
+
+  <div id="loading" class="loading hidden">Obteniendo el tiempo...</div>
+  <div id="error" class="error-msg hidden"></div>
+
+  <div id="main-info" class="main-info hidden">
+    <div class="city-name" id="city-name"></div>
+    <div class="date-txt" id="date-txt"></div>
+    <div class="emoji-big" id="emoji-big"></div>
+    <div class="sky-desc" id="sky-desc"></div>
+    <div class="temp-big" id="temp-big"></div>
+    <div class="cards">
+      <div class="card">
+        <div class="c-label">Sensación</div>
+        <div class="c-val" id="feels-like"></div>
+      </div>
+      <div class="card">
+        <div class="c-label">Humedad</div>
+        <div class="c-val" id="humidity"></div>
+      </div>
+      <div class="card">
+        <div class="c-label">Mín / Máx</div>
+        <div class="c-val" id="minmax"></div>
+      </div>
+      <div class="card">
+        <div class="c-label">Viento</div>
+        <div class="c-val" id="wind"></div>
+      </div>
+    </div>
+    <div class="update-txt" id="update-txt"></div>
+  </div>
+</div>
+
+<script>
+const WMO = {
+  0:  { e: '☀️',  d: 'Despejado' },
+  1:  { e: '🌤️', d: 'Mayormente despejado' },
+  2:  { e: '⛅',  d: 'Parcialmente nublado' },
+  3:  { e: '☁️',  d: 'Nublado' },
+  45: { e: '🌫️', d: 'Niebla' },
+  48: { e: '🌫️', d: 'Niebla helada' },
+  51: { e: '🌦️', d: 'Llovizna ligera' },
+  53: { e: '🌦️', d: 'Llovizna moderada' },
+  55: { e: '🌧️', d: 'Llovizna intensa' },
+  61: { e: '🌧️', d: 'Lluvia ligera' },
+  63: { e: '🌧️', d: 'Lluvia moderada' },
+  65: { e: '🌧️', d: 'Lluvia intensa' },
+  71: { e: '🌨️', d: 'Nieve ligera' },
+  73: { e: '🌨️', d: 'Nieve moderada' },
+  75: { e: '❄️',  d: 'Nieve intensa' },
+  80: { e: '🌦️', d: 'Chubascos ligeros' },
+  81: { e: '🌧️', d: 'Chubascos moderados' },
+  82: { e: '⛈️',  d: 'Chubascos fuertes' },
+  95: { e: '⛈️',  d: 'Tormenta' },
+  96: { e: '⛈️',  d: 'Tormenta con granizo' },
+  99: { e: '⛈️',  d: 'Tormenta fuerte' },
+};
+
+const BG = {
+  sun:    'linear-gradient(160deg, #fdcb6e, #e17055)',
+  cloud:  'linear-gradient(160deg, #b2bec3, #636e72)',
+  rain:   'linear-gradient(160deg, #74b9ff, #2d3436)',
+  storm:  'linear-gradient(160deg, #2d3436, #0a0a0a)',
+  snow:   'linear-gradient(160deg, #dfe6e9, #b2bec3)',
+  fog:    'linear-gradient(160deg, #b2bec3, #74b9ff)',
+  clear:  'linear-gradient(160deg, #74b9ff, #0984e3)',
+};
+
+function getBG(code, hour) {
+  const isNight = hour < 6 || hour >= 21;
+  if (isNight) return 'linear-gradient(160deg, #2d3436, #0a3d62)';
+  if (code === 0 || code === 1) return BG.sun;
+  if (code === 2 || code === 3) return BG.cloud;
+  if ([45,48].includes(code)) return BG.fog;
+  if ([71,73,75].includes(code)) return BG.snow;
+  if (code >= 95) return BG.storm;
+  if (code >= 51) return BG.rain;
+  return BG.clear;
+}
+
+function show(id) { document.getElementById(id).classList.remove('hidden'); }
+function hide(id) { document.getElementById(id).classList.add('hidden'); }
+
+function setLoading() {
+  hide('main-info'); hide('error');
+  show('loading');
+}
+
+function showError(msg) {
+  hide('loading'); hide('main-info');
+  const el = document.getElementById('error');
+  el.textContent = msg; show('error');
+}
+
+async function fetchWeather(lat, lon, cityName) {
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m&daily=temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=1`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('No se pudo obtener el tiempo');
+  const data = await res.json();
+  renderWeather(data, cityName);
+}
+
+function renderWeather(data, cityName) {
+  const c = data.current;
+  const d = data.daily;
+  const code = c.weather_code;
+  const w = WMO[code] || { e: '🌡️', d: 'Desconocido' };
+  const hour = new Date().getHours();
+
+  document.body.style.background = getBG(code, hour);
+
+  document.getElementById('city-name').textContent = cityName;
+  const now = new Date();
+  document.getElementById('date-txt').textContent = now.toLocaleDateString('es-ES', { weekday:'long', day:'numeric', month:'long' });
+  document.getElementById('emoji-big').textContent = w.e;
+  document.getElementById('sky-desc').textContent = w.d;
+  document.getElementById('temp-big').textContent = Math.round(c.temperature_2m) + '°';
+  document.getElementById('feels-like').textContent = Math.round(c.apparent_temperature) + '°';
+  document.getElementById('humidity').textContent = c.relative_humidity_2m + '%';
+  document.getElementById('minmax').textContent = Math.round(d.temperature_2m_min[0]) + '° / ' + Math.round(d.temperature_2m_max[0]) + '°';
+  document.getElementById('wind').textContent = Math.round(c.wind_speed_10m) + ' km/h';
+  document.getElementById('update-txt').textContent = 'Actualizado a las ' + now.toLocaleTimeString('es-ES', { hour:'2-digit', minute:'2-digit' });
+
+  hide('loading'); hide('error'); show('main-info');
+}
+
+async function searchCity() {
+  const val = document.getElementById('city-input').value.trim();
+  if (!val) return;
+  setLoading();
+  try {
+    const geo = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(val)}&count=1&language=es`);
+    const gd = await geo.json();
+    if (!gd.results || !gd.results.length) { showError('Ciudad no encontrada. Intenta con otro nombre.'); return; }
+    const r = gd.results[0];
+    const city = r.name + (r.country ? ', ' + r.country : '');
+    await fetchWeather(r.latitude, r.longitude, city);
+  } catch(e) { showError('Error al buscar la ciudad. Comprueba tu conexión.'); }
+}
+
+function getGPS() {
+  if (!navigator.geolocation) { showError('Tu dispositivo no soporta geolocalización.'); return; }
+  setLoading();
+  navigator.geolocation.getCurrentPosition(async pos => {
+    try {
+      const { latitude: lat, longitude: lon } = pos.coords;
+      const rev = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&accept-language=es`);
+      const rd = await rev.json();
+      const city = rd.address?.city || rd.address?.town || rd.address?.village || rd.address?.county || 'Mi ubicación';
+      const country = rd.address?.country || '';
+      await fetchWeather(lat, lon, city + (country ? ', ' + country : ''));
+    } catch(e) { showError('No se pudo obtener tu ubicación.'); }
+  }, () => showError('Permiso de ubicación denegado. Busca tu ciudad manualmente.'));
+}
+
+getGPS();
+</script>
+</body>
+</html>
